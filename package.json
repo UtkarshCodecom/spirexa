@@ -1,0 +1,18 @@
+{
+  "name": "photos-clone",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev:server": "npm run dev --workspace=server",
+    "dev:web": "npm run dev --workspace=web",
+    "build:server": "npm run build --workspace=server",
+    "build:web": "npm run build --workspace=web",
+    "build:types": "npm run build --workspace=@photos/types",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  }
+}
