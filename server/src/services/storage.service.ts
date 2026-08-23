@@ -40,22 +40,32 @@ function getClient(): S3Client {
   // response body, not a clean connection-refused, which only makes sense
   // if the request went out directly instead of through the proxy. AWS
   // SDK v3's documented fix is passing a proxy-aware requestHandler.
+  //
+  // Explicit connectionTimeout/requestTimeout matter even with no proxy:
+  // @smithy/node-http-handler's own defaults are unbounded, so on a network
+  // where the route to B2 is merely slow/flaky (not fully blocked) a single
+  // request can hang indefinitely instead of failing fast — starving every
+  // subsequent request behind it and outlasting the client's own timeout,
+  // which looks identical to "the server is down" from the client's side.
+  // Bounded timeouts let the SDK's built-in retry actually get a turn.
   const proxyUrl = getProxyUrl();
-  const requestHandler = proxyUrl
-    ? new NodeHttpHandler({
-        httpsAgent: new HttpsProxyAgent(proxyUrl),
-        httpAgent: new HttpsProxyAgent(proxyUrl),
-      })
-    : undefined;
+  const requestHandler = new NodeHttpHandler({
+    ...(proxyUrl
+      ? { httpsAgent: new HttpsProxyAgent(proxyUrl), httpAgent: new HttpsProxyAgent(proxyUrl) }
+      : {}),
+    connectionTimeout: 5000,
+    requestTimeout: 15000,
+  });
 
   client = new S3Client({
     region: config.storage.region,
     endpoint: config.storage.endpoint,
+    maxAttempts: 3,
     credentials: {
       accessKeyId: config.storage.keyId,
       secretAccessKey: config.storage.applicationKey,
     },
-    ...(requestHandler ? { requestHandler } : {}),
+    requestHandler,
   });
   return client;
 }

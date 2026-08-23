@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Heart } from 'lucide-react';
+import { FileText, Heart } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { mediaUrl } from '@/lib/api';
 import { useFavorite } from '@/hooks/useMedia';
@@ -37,10 +37,16 @@ export function PhotoCard({ item, onClick, selected, onSelect }: PhotoCardProps)
     >
       <img
         src={mediaUrl(item.storageUrl)}
-        alt={item.fileName}
+        alt={item.metadata?.aiCaption || item.fileName}
         loading="lazy"
         className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
       />
+
+      {item.metadata?.isDocument && !isHovered && (
+        <div className="absolute top-2 left-2 rounded-full bg-black/60 p-1">
+          <FileText className="h-3 w-3 text-white" />
+        </div>
+      )}
 
       {(isHovered || selected) && (
         <div className="absolute inset-0 bg-black/20 transition-opacity" />

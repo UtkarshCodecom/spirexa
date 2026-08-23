@@ -23,6 +23,8 @@ export interface MediaItem {
   favorite: boolean;
   deleted: boolean;
   deletedAt?: Date;
+  /** When the photo was actually taken (EXIF), falling back to upload time if unknown. */
+  takenAt: Date;
   metadata?: {
     dateTaken?: Date;
     location?: {
@@ -380,6 +382,7 @@ function mapToMediaItem(uid: string, data: mediaRepository.MediaData, ttlSeconds
     favorite: data.favorite,
     deleted: data.deleted,
     deletedAt: data.deletedAt,
+    takenAt: data.metadata?.dateTaken ?? data.createdAt,
     metadata: data.metadata,
     createdAt: data.createdAt,
     updatedAt: data.updatedAt,

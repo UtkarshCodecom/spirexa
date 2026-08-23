@@ -28,7 +28,10 @@ export function groupMediaByDate(items: MediaItem[]): DateGroup[] {
   const groups: Record<string, MediaItem[]> = {};
 
   for (const item of items) {
-    const date = new Date(item.createdAt);
+    // takenAt (EXIF capture date, falling back to upload time only when
+    // unknown) — not createdAt, which is just when the file reached the
+    // server and says nothing about when the photo was actually taken.
+    const date = new Date(item.takenAt ?? item.createdAt);
     const label = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
     if (!groups[label]) {
       groups[label] = [];

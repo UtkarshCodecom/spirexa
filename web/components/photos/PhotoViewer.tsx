@@ -1,11 +1,12 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { X, ChevronLeft, ChevronRight, Heart, Download, Trash2, Info, FolderPlus } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, Heart, Download, Trash2, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { mediaUrl } from '@/lib/api';
 import { useKeyboard } from '@/hooks/useKeyboard';
-import { useFavorite } from '@/hooks/useMedia';
+import { useFavorite, useDelete } from '@/hooks/useMedia';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import type { MediaItem } from '@/types';
 
 interface PhotoViewerProps {
@@ -13,12 +14,16 @@ interface PhotoViewerProps {
   currentIndex: number;
   onClose: () => void;
   onNavigate: (index: number) => void;
+  /** Called after a successful delete so the caller can drop it from its own list. */
+  onDeleted?: (id: string) => void;
 }
 
-export function PhotoViewer({ items, currentIndex, onClose, onNavigate }: PhotoViewerProps) {
+export function PhotoViewer({ items, currentIndex, onClose, onNavigate, onDeleted }: PhotoViewerProps) {
   const [showInfo, setShowInfo] = useState(false);
   const [zoom, setZoom] = useState(1);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const { toggle } = useFavorite();
+  const { delete: deleteMedia, loading: deleting } = useDelete();
   const currentItem = items[currentIndex];
 
   const goNext = useCallback(() => {
@@ -65,6 +70,18 @@ export function PhotoViewer({ items, currentIndex, onClose, onNavigate }: PhotoV
     await toggle(currentItem.id, currentItem.favorite);
   };
 
+  const handleDelete = async () => {
+    if (!currentItem) return;
+    await deleteMedia(currentItem.id);
+    setShowDeleteConfirm(false);
+    onDeleted?.(currentItem.id);
+    if (items.length <= 1) {
+      onClose();
+    } else if (currentIndex >= items.length - 1) {
+      onNavigate(currentIndex - 1);
+    }
+  };
+
   if (!currentItem) return null;
 
   return (
@@ -96,10 +113,10 @@ export function PhotoViewer({ items, currentIndex, onClose, onNavigate }: PhotoV
         <button onClick={handleDownload} className="rounded-full p-2 text-white hover:bg-white/20">
           <Download className="h-5 w-5" />
         </button>
-        <button className="rounded-full p-2 text-white hover:bg-white/20">
-          <FolderPlus className="h-5 w-5" />
-        </button>
-        <button className="rounded-full p-2 text-white hover:bg-white/20">
+        <button
+          onClick={() => setShowDeleteConfirm(true)}
+          className="rounded-full p-2 text-white hover:bg-white/20"
+        >
           <Trash2 className="h-5 w-5" />
         </button>
       </div>
@@ -147,15 +164,21 @@ export function PhotoViewer({ items, currentIndex, onClose, onNavigate }: PhotoV
               <dd className="mt-1">{currentItem.fileName}</dd>
             </div>
             <div>
-              <dt className="text-surface-400">Date</dt>
+              <dt className="text-surface-400">Date taken</dt>
               <dd className="mt-1">
-                {new Date(currentItem.createdAt).toLocaleDateString('en-US', {
+                {new Date(currentItem.takenAt ?? currentItem.createdAt).toLocaleDateString('en-US', {
                   year: 'numeric',
                   month: 'long',
                   day: 'numeric',
                 })}
               </dd>
             </div>
+            {currentItem.metadata?.aiCaption && (
+              <div>
+                <dt className="text-surface-400">AI description</dt>
+                <dd className="mt-1">{currentItem.metadata.aiCaption}</dd>
+              </div>
+            )}
             <div>
               <dt className="text-surface-400">Dimensions</dt>
               <dd className="mt-1">
@@ -170,9 +193,39 @@ export function PhotoViewer({ items, currentIndex, onClose, onNavigate }: PhotoV
               <dt className="text-surface-400">Type</dt>
               <dd className="mt-1">{currentItem.mimeType}</dd>
             </div>
+            {currentItem.metadata?.aiTags && currentItem.metadata.aiTags.length > 0 && (
+              <div>
+                <dt className="text-surface-400">Tags</dt>
+                <dd className="mt-1 flex flex-wrap gap-1.5">
+                  {currentItem.metadata.aiTags.map((tag) => (
+                    <span key={tag} className="rounded-full bg-white/10 px-2 py-0.5 text-xs">
+                      {tag}
+                    </span>
+                  ))}
+                </dd>
+              </div>
+            )}
+            {currentItem.metadata?.isDocument && currentItem.metadata.documentText && (
+              <div>
+                <dt className="text-surface-400">Detected text</dt>
+                <dd className="mt-1 whitespace-pre-wrap text-surface-200">
+                  {currentItem.metadata.documentText}
+                </dd>
+              </div>
+            )}
           </dl>
         </div>
       )}
+
+      <ConfirmDialog
+        open={showDeleteConfirm}
+        onClose={() => setShowDeleteConfirm(false)}
+        onConfirm={handleDelete}
+        title="Delete this photo?"
+        description="This removes it from your backup. It can't be undone."
+        confirmLabel="Delete"
+        loading={deleting}
+      />
     </div>
   );
 }

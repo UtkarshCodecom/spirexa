@@ -24,7 +24,7 @@ export default function PhotosPage() {
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [sharing, setSharing] = useState(false);
-  const { data, loading, hasMore, loadMore } = useMediaList({ limit: 50 });
+  const { data, loading, hasMore, loadMore, refetch } = useMediaList({ limit: 50 });
   const sentinelRef = useInfiniteScroll(loadMore, hasMore, loading);
   const { addToast } = useToast();
 
@@ -129,6 +129,7 @@ export default function PhotosPage() {
           currentIndex={viewerIndex}
           onClose={() => setViewerIndex(null)}
           onNavigate={setViewerIndex}
+          onDeleted={() => refetch()}
         />
       )}
     </div>

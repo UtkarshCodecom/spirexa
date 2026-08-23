@@ -18,13 +18,20 @@ export function useMediaList(filters: MediaFilters = {}) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
+  // The actual pagination cursor lives here, not in `filters` — filters is a
+  // fresh object from the caller every render, and nothing ever wrote a
+  // cursor into it. Without this, loadMore() re-requested page 1 forever
+  // (no cursor ever sent), appending duplicate items on every scroll tick —
+  // the cause of React's "two children with the same key" warning.
+  const [cursor, setCursor] = useState<string | undefined>(undefined);
 
   const fetchMedia = useCallback(async (isLoadMore = false) => {
     setLoading(true);
     setError(null);
     try {
       const params = new URLSearchParams();
-      if (filters.cursor) params.set('cursor', filters.cursor);
+      const cursorToUse = isLoadMore ? cursor : undefined;
+      if (cursorToUse) params.set('cursor', cursorToUse);
       if (filters.limit) params.set('limit', String(filters.limit));
       if (filters.type) params.set('type', filters.type);
       if (filters.favorite !== undefined) params.set('favorite', String(filters.favorite));
@@ -39,16 +46,19 @@ export function useMediaList(filters: MediaFilters = {}) {
       );
       setData((prev) => (isLoadMore ? [...prev, ...response.data] : response.data));
       setHasMore(response.hasMore);
+      setCursor(response.nextCursor);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch media');
     } finally {
       setLoading(false);
     }
-  }, [filters.cursor, filters.limit, filters.type, filters.favorite, filters.deleted, filters.search, filters.startDate, filters.endDate]);
+  }, [cursor, filters.limit, filters.type, filters.favorite, filters.deleted, filters.search, filters.startDate, filters.endDate]);
 
   useEffect(() => {
+    setCursor(undefined);
     fetchMedia(false);
-  }, [fetchMedia]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.limit, filters.type, filters.favorite, filters.deleted, filters.search, filters.startDate, filters.endDate]);
 
   const loadMore = useCallback(() => {
     if (hasMore && !loading) {
@@ -129,7 +139,9 @@ export function useDelete() {
   const deleteMedia = useCallback(async (id: string) => {
     setLoading(true);
     try {
-      await apiClient.delete(`/api/media/${id}`);
+      // Permanently removes the backup (B2 object + Firestore doc + quota
+      // adjustment) — there's no separate `DELETE /api/media/:id` route.
+      await apiClient.delete(`/api/media/${id}/permanent`);
     } finally {
       setLoading(false);
     }

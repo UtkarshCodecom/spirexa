@@ -1,5 +1,15 @@
 export type { User, Media, Album, MediaType, PaginatedResponse, ApiResponse, ApiError, SearchQuery } from '@photos/types';
 
+export interface MediaMetadata {
+  dateTaken?: string;
+  location?: { latitude: number; longitude: number };
+  /** AI-generated search caption — null/absent until background analysis finishes. */
+  aiCaption?: string;
+  aiTags?: string[];
+  isDocument?: boolean;
+  documentText?: string;
+}
+
 export interface MediaItem {
   id: string;
   ownerId: string;
@@ -13,10 +23,11 @@ export interface MediaItem {
   deleted: boolean;
   deletedAt: string | null;
   createdAt: string;
-  takenAt: string | null;
+  /** When the photo was actually taken, falling back to upload time — always present. */
+  takenAt: string;
   updatedAt: string;
   type: 'image' | 'video';
-  metadata?: Record<string, unknown>;
+  metadata?: MediaMetadata;
 }
 
 export interface AlbumDetail {
