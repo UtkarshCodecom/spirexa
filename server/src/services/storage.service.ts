@@ -1,73 +1,32 @@
-import {
-  S3Client,
-  GetObjectCommand,
-  DeleteObjectCommand,
-  HeadObjectCommand,
-} from '@aws-sdk/client-s3';
-import { Upload } from '@aws-sdk/lib-storage';
-import { NodeHttpHandler } from '@smithy/node-http-handler';
-import { HttpsProxyAgent } from 'https-proxy-agent';
 import { PassThrough, Readable } from 'stream';
 import { config } from '../config';
-import { getProxyUrl } from '../config/proxy';
 import { StorageError } from '../utils/errors';
 import logger from '../utils/logger';
 
 /**
- * Backblaze B2 (S3-compatible) storage, accessed only from the server.
+ * Bunny.net Edge Storage, accessed only from the server.
  *
- * The B2 application key never leaves this process — clients (Android, web)
+ * The Bunny access key never leaves this process — clients (Android, web)
  * stream file bytes to the server over the authenticated API, and the server
- * streams them on to B2 and back. No client ever sees a storage credential
- * or a direct storage URL.
+ * streams them on to Bunny and back. No client ever sees a storage
+ * credential or a direct storage URL.
+ *
+ * Switched from Backblaze B2 mid-hackathon: B2's free-tier download cap was
+ * hit during testing with no payment method on file to raise it. Bunny's
+ * storage API is a plain PUT/GET/DELETE over HTTPS with an AccessKey header
+ * (no AWS SDK, no multipart-upload machinery needed) — small enough to swap
+ * in behind the same exported function signatures so nothing else in the
+ * server had to change.
  */
 
-let client: S3Client | null = null;
-
-function getClient(): S3Client {
-  if (client) return client;
-  if (!config.storage.bucket || !config.storage.keyId || !config.storage.applicationKey) {
-    throw new StorageError('Backblaze B2 storage is not configured on the server');
+function assertConfigured(): void {
+  if (!config.storage.zone || !config.storage.accessKey) {
+    throw new StorageError('Bunny.net storage is not configured on the server');
   }
+}
 
-  // The AWS SDK v3's default HTTP handler builds its own dedicated
-  // http.Agent/https.Agent internally — it does NOT fall back to Node's
-  // global agent, so pointing http.globalAgent/https.globalAgent at the
-  // proxy (done in config/proxy.ts, which fixed node-fetch) does nothing
-  // for this client. This is the fourth distinct HTTP client found today
-  // with its own separate proxy blind spot; confirmed by the actual
-  // failure mode — B2 reads hung with a socket-level ETIMEDOUT reading the
-  // response body, not a clean connection-refused, which only makes sense
-  // if the request went out directly instead of through the proxy. AWS
-  // SDK v3's documented fix is passing a proxy-aware requestHandler.
-  //
-  // Explicit connectionTimeout/requestTimeout matter even with no proxy:
-  // @smithy/node-http-handler's own defaults are unbounded, so on a network
-  // where the route to B2 is merely slow/flaky (not fully blocked) a single
-  // request can hang indefinitely instead of failing fast — starving every
-  // subsequent request behind it and outlasting the client's own timeout,
-  // which looks identical to "the server is down" from the client's side.
-  // Bounded timeouts let the SDK's built-in retry actually get a turn.
-  const proxyUrl = getProxyUrl();
-  const requestHandler = new NodeHttpHandler({
-    ...(proxyUrl
-      ? { httpsAgent: new HttpsProxyAgent(proxyUrl), httpAgent: new HttpsProxyAgent(proxyUrl) }
-      : {}),
-    connectionTimeout: 5000,
-    requestTimeout: 15000,
-  });
-
-  client = new S3Client({
-    region: config.storage.region,
-    endpoint: config.storage.endpoint,
-    maxAttempts: 3,
-    credentials: {
-      accessKeyId: config.storage.keyId,
-      secretAccessKey: config.storage.applicationKey,
-    },
-    requestHandler,
-  });
-  return client;
+function objectUrl(key: string): string {
+  return `https://${config.storage.host}/${config.storage.zone}/${key}`;
 }
 
 const UNSAFE_FILENAME_CHARS = ['/', '\\', ' ', '\t', '\n', '\r'];
@@ -99,16 +58,18 @@ export interface UploadResult {
 }
 
 /**
- * Streams [body] straight through to B2 (multipart under the hood for large
- * files via @aws-sdk/lib-storage), without buffering the whole file in memory
- * or writing it to local disk. Returns the exact byte count actually written,
- * which is what we trust for quota accounting — never the client-declared size.
+ * Streams [body] straight through to Bunny, without buffering the whole file
+ * in memory or writing it to local disk. Returns the exact byte count
+ * actually written, which is what we trust for quota accounting — never the
+ * client-declared size.
  */
 export async function uploadStream(
   key: string,
   body: Readable,
   contentType: string
 ): Promise<UploadResult> {
+  assertConfigured();
+
   let bytesWritten = 0;
   const counter = new PassThrough();
   body.on('data', (chunk: Buffer) => {
@@ -117,22 +78,23 @@ export async function uploadStream(
   body.pipe(counter);
 
   try {
-    const upload = new Upload({
-      client: getClient(),
-      params: {
-        Bucket: config.storage.bucket,
-        Key: key,
-        Body: counter,
-        ContentType: contentType,
+    const response = await fetch(objectUrl(key), {
+      method: 'PUT',
+      headers: {
+        AccessKey: config.storage.accessKey,
+        'Content-Type': contentType || 'application/octet-stream',
       },
-      queueSize: 4,
-      partSize: 8 * 1024 * 1024,
+      body: counter,
+      duplex: 'half',
     });
 
-    const result = await upload.done();
-    return { key, bytesWritten, etag: result.ETag };
+    if (!response.ok) {
+      throw new Error(`Bunny upload failed with status ${response.status}`);
+    }
+
+    return { key, bytesWritten, etag: response.headers.get('etag') ?? undefined };
   } catch (error) {
-    logger.error({ error, key }, 'B2 upload failed');
+    logger.error({ error, key }, 'Bunny upload failed');
     throw new StorageError('Failed to upload file to storage');
   }
 }
@@ -146,53 +108,79 @@ export interface DownloadResult {
   statusCode: 200 | 206;
 }
 
-/** Streams an object back from B2, honoring an optional HTTP Range header. */
+/** Streams an object back from Bunny, honoring an optional HTTP Range header. */
 export async function getObjectStream(key: string, range?: string): Promise<DownloadResult> {
-  try {
-    const response = await getClient().send(
-      new GetObjectCommand({
-        Bucket: config.storage.bucket,
-        Key: key,
-        Range: range,
-      })
-    );
+  assertConfigured();
 
+  try {
+    const response = await fetch(objectUrl(key), {
+      method: 'GET',
+      headers: {
+        AccessKey: config.storage.accessKey,
+        ...(range ? { Range: range } : {}),
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Bunny download failed with status ${response.status}`);
+    }
+    if (!response.body) {
+      throw new Error('Bunny download returned no body');
+    }
+
+    const contentLength = response.headers.get('content-length');
     return {
-      stream: response.Body as Readable,
-      contentType: response.ContentType,
-      contentLength: response.ContentLength,
-      contentRange: response.ContentRange,
-      acceptRanges: response.AcceptRanges,
-      statusCode: range && response.ContentRange ? 206 : 200,
+      stream: Readable.fromWeb(response.body as import('stream/web').ReadableStream),
+      contentType: response.headers.get('content-type') ?? undefined,
+      contentLength: contentLength ? parseInt(contentLength, 10) : undefined,
+      contentRange: response.headers.get('content-range') ?? undefined,
+      acceptRanges: response.headers.get('accept-ranges') ?? undefined,
+      statusCode: response.status === 206 ? 206 : 200,
     };
   } catch (error) {
-    logger.error({ error, key }, 'B2 download failed');
+    logger.error({ error, key }, 'Bunny download failed');
     throw new StorageError('Failed to read file from storage');
   }
 }
 
 export async function deleteObject(key: string): Promise<void> {
+  assertConfigured();
+
   try {
-    await getClient().send(
-      new DeleteObjectCommand({ Bucket: config.storage.bucket, Key: key })
-    );
+    const response = await fetch(objectUrl(key), {
+      method: 'DELETE',
+      headers: { AccessKey: config.storage.accessKey },
+    });
+    // A 404 here just means it's already gone — fine for our callers, which
+    // only ever delete to make sure something isn't there anymore.
+    if (!response.ok && response.status !== 404) {
+      throw new Error(`Bunny delete failed with status ${response.status}`);
+    }
   } catch (error) {
-    logger.error({ error, key }, 'B2 delete failed');
+    logger.error({ error, key }, 'Bunny delete failed');
     throw new StorageError('Failed to delete file from storage');
   }
 }
 
 export async function headObject(key: string): Promise<{ size: number; contentType?: string } | null> {
+  assertConfigured();
+
   try {
-    const response = await getClient().send(
-      new HeadObjectCommand({ Bucket: config.storage.bucket, Key: key })
-    );
-    return { size: response.ContentLength ?? 0, contentType: response.ContentType };
-  } catch (error: any) {
-    if (error?.$metadata?.httpStatusCode === 404 || error?.name === 'NotFound') {
-      return null;
+    const response = await fetch(objectUrl(key), {
+      method: 'HEAD',
+      headers: { AccessKey: config.storage.accessKey },
+    });
+    if (response.status === 404) return null;
+    if (!response.ok) {
+      throw new Error(`Bunny head failed with status ${response.status}`);
     }
-    logger.error({ error, key }, 'B2 head failed');
+    const contentLength = response.headers.get('content-length');
+    return {
+      size: contentLength ? parseInt(contentLength, 10) : 0,
+      contentType: response.headers.get('content-type') ?? undefined,
+    };
+  } catch (error) {
+    logger.error({ error, key }, 'Bunny head failed');
     throw new StorageError('Failed to read file metadata from storage');
   }
 }

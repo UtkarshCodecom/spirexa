@@ -13,11 +13,9 @@ export interface Config {
     privateKey: string;
   };
   storage: {
-    bucket: string;
-    endpoint: string;
-    region: string;
-    keyId: string;
-    applicationKey: string;
+    zone: string;
+    host: string;
+    accessKey: string;
   };
   corsOrigin: string;
   publicWebUrl: string;
@@ -45,11 +43,9 @@ export const config: Config = {
     privateKey: process.env.FIREBASE_PRIVATE_KEY || '',
   },
   storage: {
-    bucket: process.env.B2_BUCKET || '',
-    endpoint: process.env.B2_ENDPOINT || '',
-    region: process.env.B2_REGION || 'eu-central-003',
-    keyId: process.env.B2_KEY_ID || '',
-    applicationKey: process.env.B2_APPLICATION_KEY || '',
+    zone: process.env.BUNNY_STORAGE_ZONE || '',
+    host: process.env.BUNNY_STORAGE_HOST || 'storage.bunnycdn.com',
+    accessKey: process.env.BUNNY_ACCESS_KEY || '',
   },
   corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:3000',
   // Base URL of the public web app — used to build shareable /share/{id} links.
