@@ -2,13 +2,23 @@
 
 **A private, AI-powered photo backup platform** — Android app, API server, and web app — built for the **OOSC 4.0 Hackathon** under the **AI for Public Good** problem statement.
 
-[![Node](https://img.shields.io/badge/Node.js-20%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org)
+[![Node](https://img.shields.io/badge/Node.js-22%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org)
 [![Kotlin](https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF?logo=kotlin&logoColor=white)](https://kotlinlang.org)
 [![Next.js](https://img.shields.io/badge/Next.js-15-000000?logo=next.js&logoColor=white)](https://nextjs.org)
 [![Gemini](https://img.shields.io/badge/Gemini-3.5%20Flash%20Lite-4285F4?logo=googlegemini&logoColor=white)](https://ai.google.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---
+
+## 🚀 Live demo
+
+| | |
+|---|---|
+| **Web app** | [spirexa.vercel.app](https://spirexa.vercel.app) — or go straight to [**spirexa.vercel.app/test**](https://spirexa.vercel.app/test) for one-click judge access, no typing required |
+| **API server** | [spirexa.onrender.com](https://spirexa.onrender.com) (Render free tier — sleeps after 15 min idle, first request may take ~30-60s to wake it up) |
+| **Judge login** | `test@gmail.com` / `Utkarsh.1905` — a real seeded account with a genuine, already-backed-up photo library, not a mocked demo state |
+
+The Android app talks to the same live API server — see [server/README.md](server/README.md) for local setup if you want to run it yourself.
 
 ## Why this matters
 
