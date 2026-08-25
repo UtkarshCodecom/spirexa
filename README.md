@@ -15,6 +15,7 @@
 | | |
 |---|---|
 | **Web app** | [spirexa.vercel.app](https://spirexa.vercel.app) — or go straight to [**spirexa.vercel.app/test**](https://spirexa.vercel.app/test) for one-click judge access, no typing required |
+| **Android app** | [**Download the APK**](https://github.com/UtkarshCodecom/spirexa/releases/download/v1.0.0-demo/app-debug.apk) — pre-configured to talk to the live backend, install and sign in directly, no build step needed |
 | **API server** | [spirexa.onrender.com](https://spirexa.onrender.com) (Render free tier — sleeps after 15 min idle, first request may take ~30-60s to wake it up) |
 | **Judge login** | `test@gmail.com` / `Utkarsh.1905` — a real seeded account with a genuine, already-backed-up photo library, not a mocked demo state |
 
